@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCdloF4BkzCjZ-mXy89JuDS4Br96_ORtrg",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain:
     import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "student-management-syste-4294b.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "student-management-syste-4294b",
