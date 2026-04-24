@@ -1,0 +1,21 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Firebase auth + PostgreSQL user sync service",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext js,json src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.8.0",
+    "nodemon": "^3.1.14",
+    "pg": "^8.20.0"
+  }
+}

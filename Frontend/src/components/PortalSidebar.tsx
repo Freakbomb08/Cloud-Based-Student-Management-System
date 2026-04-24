@@ -3,6 +3,7 @@ import { LayoutGrid, BookOpen, MessageSquare, UserCircle, Receipt, LogOut } from
 import { Brand } from "./Brand";
 import { Button } from "./ui/button";
 import { mockStudent } from "@/data/mock";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -14,15 +15,26 @@ const nav = [
 
 export function PortalSidebar() {
   const navigate = useNavigate();
+  const { appUser, signOutUser } = useAuth();
+
+  const displayName = appUser?.name || mockStudent.name;
+  const displayId = appUser?.id || mockStudent.id;
+  const avatar = appUser?.photoUrl || mockStudent.avatar;
+
+  const onSignOut = async () => {
+    await signOutUser();
+    navigate("/login", { replace: true });
+  };
+
   return (
     <aside className="hidden lg:flex w-72 shrink-0 flex-col bg-surface-low p-6 gap-6">
       <Brand variant="stacked" />
 
       <div className="rounded-xl bg-surface-lowest p-3 flex items-center gap-3 shadow-card">
-        <img src={mockStudent.avatar} alt={mockStudent.name} className="h-11 w-11 rounded-lg object-cover" />
+        <img src={avatar} alt={displayName} className="h-11 w-11 rounded-lg object-cover" />
         <div className="leading-tight">
-          <p className="font-display font-bold text-primary text-sm">{mockStudent.name}</p>
-          <p className="text-[11px] text-muted-foreground tracking-wide">ID: {mockStudent.id}</p>
+          <p className="font-display font-bold text-primary text-sm">{displayName}</p>
+          <p className="text-[11px] text-muted-foreground tracking-wide">ID: {displayId}</p>
         </div>
       </div>
 
@@ -50,7 +62,7 @@ export function PortalSidebar() {
         <Button variant="primary" size="lg" className="w-full">
           <Receipt className="h-4 w-4" /> Submit Fee
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/login")} className="text-muted-foreground">
+        <Button variant="ghost" size="sm" onClick={onSignOut} className="text-muted-foreground">
           <LogOut className="h-4 w-4" /> Sign out
         </Button>
       </div>
