@@ -12,6 +12,7 @@ const port = Number(process.env.PORT || 3000);
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:8080";
 
 const firebaseAdmin = initializeFirebaseAdmin();
+const APP_ROLES = ["student", "faculty", "admin"];
 
 app.use(
   cors({
@@ -29,9 +30,14 @@ function getBearerToken(authHeader = "") {
 }
 
 function normalizeRole(role) {
-  if (role === "student" || role === "faculty" || role === "admin") {
+  if (role === "teacher") {
+    return "faculty";
+  }
+
+  if (APP_ROLES.includes(role)) {
     return role;
   }
+
   return null;
 }
 
@@ -47,6 +53,23 @@ async function verifyFirebaseToken(req, res, next) {
   } catch (error) {
     return res.status(401).json({ message: "Invalid or expired Firebase token." });
   }
+}
+
+function requireRole(...allowedRoles) {
+  const normalizedAllowedRoles = allowedRoles
+    .map(normalizeRole)
+    .filter(Boolean);
+
+  return (req, res, next) => {
+    const role = normalizeRole(req.decodedToken?.role);
+
+    if (!role || !normalizedAllowedRoles.includes(role)) {
+      return res.status(403).json({ message: "You do not have permission to access this resource." });
+    }
+
+    req.userRole = role;
+    return next();
+  };
 }
 
 app.get("/api/health", (_req, res) => {
@@ -109,6 +132,71 @@ app.post("/api/auth/session", verifyFirebaseToken, async (req, res) => {
   } catch (error) {
     console.error("Failed to sync auth session:", error);
     return res.status(500).json({ message: "Failed to sync user session." });
+  }
+});
+
+app.post("/api/admin/users/:uid/role", verifyFirebaseToken, requireRole("admin"), async (req, res) => {
+  try {
+    const uid = String(req.params.uid || "").trim();
+    const role = normalizeRole(req.body?.role);
+
+    if (!uid) {
+      return res.status(400).json({ message: "Firebase uid is required." });
+    }
+
+    if (!role) {
+      return res.status(400).json({
+        message: `Role must be one of: ${APP_ROLES.join(", ")}.`,
+      });
+    }
+
+    const firebaseUser = await firebaseAdmin.auth().getUser(uid);
+
+    if (!firebaseUser.email) {
+      return res.status(400).json({ message: "Firebase user must have an email address before a role can be assigned." });
+    }
+
+    const currentClaims = firebaseUser.customClaims || {};
+
+    await firebaseAdmin.auth().setCustomUserClaims(uid, {
+      ...currentClaims,
+      role,
+    });
+
+    await pool.query(
+      `
+      INSERT INTO users (firebase_uid, email, display_name, photo_url, role, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (firebase_uid)
+      DO UPDATE SET
+        email = EXCLUDED.email,
+        display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+        photo_url = COALESCE(EXCLUDED.photo_url, users.photo_url),
+        role = EXCLUDED.role,
+        updated_at = NOW()
+      `,
+      [
+        uid,
+        firebaseUser.email,
+        firebaseUser.displayName || null,
+        firebaseUser.photoURL || null,
+        role,
+      ]
+    );
+
+    return res.json({
+      user: {
+        id: uid,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName || firebaseUser.email,
+        photoUrl: firebaseUser.photoURL || null,
+        role,
+      },
+      message: "Role updated. The user must refresh their Firebase ID token or sign in again.",
+    });
+  } catch (error) {
+    console.error("Failed to update user role:", error);
+    return res.status(500).json({ message: "Failed to update user role." });
   }
 });
 

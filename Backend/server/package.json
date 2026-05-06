@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon --watch src --ext js,json src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "set-role": "node scripts/setUserRole.js"
   },
   "keywords": [],
   "author": "",

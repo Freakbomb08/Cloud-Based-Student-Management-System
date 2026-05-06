@@ -14,12 +14,13 @@ interface AuthContextValue {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<SessionUser>;
   signOutUser: () => Promise<void>;
+  refreshSession: () => Promise<SessionUser | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 async function loadSession(user: User): Promise<SessionUser> {
-  const idToken = await user.getIdToken();
+  const idToken = await user.getIdToken(true);
   return syncUserSession(idToken);
 }
 
@@ -68,6 +69,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await signOut(firebaseAuth);
         setFirebaseUser(null);
         setAppUser(null);
+      },
+      async refreshSession() {
+        if (!firebaseUser) {
+          setAppUser(null);
+          return null;
+        }
+
+        const sessionUser = await loadSession(firebaseUser);
+        setAppUser(sessionUser);
+        return sessionUser;
       },
     }),
     [appUser, firebaseUser, loading]
