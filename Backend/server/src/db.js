@@ -25,11 +25,17 @@ async function ensureSchema() {
       email TEXT UNIQUE NOT NULL,
       display_name TEXT,
       photo_url TEXT,
+      phone_number TEXT,
       role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'faculty', 'admin')),
       last_login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS phone_number TEXT;
   `);
 }
 

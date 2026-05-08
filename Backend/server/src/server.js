@@ -13,6 +13,7 @@ const frontendUrl = process.env.FRONTEND_URL || "http://localhost:8080";
 
 const firebaseAdmin = initializeFirebaseAdmin();
 const APP_ROLES = ["student", "faculty", "admin"];
+const MAX_PROFILE_PHOTO_LENGTH = 1_500_000;
 
 app.use(
   cors({
@@ -20,7 +21,7 @@ app.use(
     credentials: false,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 function getBearerToken(authHeader = "") {
   if (!authHeader.startsWith("Bearer ")) {
@@ -78,11 +79,51 @@ function toSessionUser(user) {
     email: user.email,
     name: user.display_name || user.email,
     photoUrl: user.photo_url,
+    phoneNumber: user.phone_number,
     role: user.role,
     createdAt: user.created_at,
     updatedAt: user.updated_at,
     lastLoginAt: user.last_login_at,
   };
+}
+
+function normalizeOptionalString(value, maxLength) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.slice(0, maxLength);
+}
+
+function normalizePhotoUrl(value) {
+  const photoUrl = normalizeOptionalString(value, MAX_PROFILE_PHOTO_LENGTH);
+
+  if (!photoUrl) {
+    return photoUrl;
+  }
+
+  if (
+    photoUrl.startsWith("data:image/") ||
+    photoUrl.startsWith("https://") ||
+    photoUrl.startsWith("http://")
+  ) {
+    return photoUrl;
+  }
+
+  return undefined;
 }
 
 app.get("/api/health", (_req, res) => {
@@ -113,19 +154,20 @@ app.post("/api/auth/session", verifyFirebaseToken, async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      INSERT INTO users (firebase_uid, email, display_name, photo_url, role, last_login_at, updated_at)
-      VALUES ($1, $2, $3, $4, COALESCE($5, 'student'), NOW(), NOW())
+      INSERT INTO users (firebase_uid, email, display_name, photo_url, phone_number, role, last_login_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'student'), NOW(), NOW())
       ON CONFLICT (firebase_uid)
       DO UPDATE SET
         email = EXCLUDED.email,
         display_name = COALESCE(EXCLUDED.display_name, users.display_name),
         photo_url = COALESCE(EXCLUDED.photo_url, users.photo_url),
+        phone_number = COALESCE(EXCLUDED.phone_number, users.phone_number),
         role = COALESCE(EXCLUDED.role, users.role),
         last_login_at = NOW(),
         updated_at = NOW()
-      RETURNING firebase_uid, email, display_name, photo_url, role, created_at, updated_at, last_login_at
+      RETURNING firebase_uid, email, display_name, photo_url, phone_number, role, created_at, updated_at, last_login_at
       `,
-      [firebaseUid, email, displayName, photoUrl, claimedRole]
+      [firebaseUid, email, displayName, photoUrl, decoded.phone_number || null, claimedRole]
     );
 
     const user = rows[0];
@@ -137,13 +179,56 @@ app.post("/api/auth/session", verifyFirebaseToken, async (req, res) => {
   }
 });
 
+app.patch("/api/users/me", verifyFirebaseToken, async (req, res) => {
+  try {
+    const firebaseUid = req.decodedToken.uid;
+    const hasName = req.body?.name !== undefined;
+    const hasPhoneNumber = req.body?.phoneNumber !== undefined;
+    const hasPhotoUrl = req.body?.photoUrl !== undefined;
+    const displayName = normalizeOptionalString(req.body?.name, 120);
+    const phoneNumber = normalizeOptionalString(req.body?.phoneNumber, 30);
+    const photoUrl = normalizePhotoUrl(req.body?.photoUrl);
+
+    if (
+      (req.body?.name !== undefined && displayName === undefined) ||
+      (req.body?.phoneNumber !== undefined && phoneNumber === undefined) ||
+      (req.body?.photoUrl !== undefined && photoUrl === undefined)
+    ) {
+      return res.status(400).json({ message: "Profile fields are invalid." });
+    }
+
+    const { rows } = await pool.query(
+      `
+      UPDATE users
+      SET
+        display_name = CASE WHEN $5 THEN COALESCE($2, display_name) ELSE display_name END,
+        phone_number = CASE WHEN $6 THEN $3 ELSE phone_number END,
+        photo_url = CASE WHEN $7 THEN $4 ELSE photo_url END,
+        updated_at = NOW()
+      WHERE firebase_uid = $1
+      RETURNING firebase_uid, email, display_name, photo_url, phone_number, role, created_at, updated_at, last_login_at
+      `,
+      [firebaseUid, displayName, phoneNumber, photoUrl, hasName, hasPhoneNumber, hasPhotoUrl]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "User profile has not been synced yet." });
+    }
+
+    return res.json({ user: toSessionUser(rows[0]) });
+  } catch (error) {
+    console.error("Failed to update current user:", error);
+    return res.status(500).json({ message: "Failed to update profile." });
+  }
+});
+
 app.get("/api/users/me", verifyFirebaseToken, async (req, res) => {
   try {
     const firebaseUid = req.decodedToken.uid;
 
     const { rows } = await pool.query(
       `
-      SELECT firebase_uid, email, display_name, photo_url, role, created_at, updated_at, last_login_at
+      SELECT firebase_uid, email, display_name, photo_url, phone_number, role, created_at, updated_at, last_login_at
       FROM users
       WHERE firebase_uid = $1
       `,

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  Camera,
   Calendar,
   Edit2,
   Eye,
@@ -19,7 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PortalTopbar } from "@/components/PortalTopbar";
 import { useAuth } from "@/context/AuthContext";
-import { fetchCurrentUser, type SessionUser, type UserRole } from "@/lib/api";
+import { fetchCurrentUser, updateCurrentUser, type SessionUser, type UserRole } from "@/lib/api";
 
 const roleDetails: Record<UserRole, { title: string; profileTitle: string; area: string; status: string }> = {
   student: {
@@ -64,12 +65,25 @@ function getInitials(name: string): string {
     .join("") || "U";
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Unable to read selected image."));
+    reader.readAsDataURL(file);
+  });
+}
+
 const Profile = () => {
   const navigate = useNavigate();
-  const { firebaseUser, appUser, signOutUser } = useAuth();
+  const { firebaseUser, appUser, signOutUser, refreshSession } = useAuth();
   const [profileUser, setProfileUser] = useState<SessionUser | null>(appUser);
+  const [profileForm, setProfileForm] = useState({ name: "", phoneNumber: "" });
   const [isFetching, setIsFetching] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
@@ -112,6 +126,7 @@ const Profile = () => {
   const details = roleDetails[role];
   const accountId = user?.id || firebaseUser?.uid || "Not available";
   const avatarUrl = user?.photoUrl || firebaseUser?.photoURL || null;
+  const phoneNumber = user?.phoneNumber || "";
   const createdAt = formatDate(user?.createdAt || firebaseUser?.metadata.creationTime);
   const lastLoginAt = formatDate(user?.lastLoginAt || firebaseUser?.metadata.lastSignInTime);
   const emailStatus = firebaseUser?.emailVerified ? "Verified" : "Not verified";
@@ -125,6 +140,72 @@ const Profile = () => {
     [],
   );
 
+  useEffect(() => {
+    setProfileForm({
+      name: displayName === "Portal User" ? "" : displayName,
+      phoneNumber,
+    });
+  }, [displayName, phoneNumber]);
+
+  const saveProfile = async () => {
+    if (!firebaseUser) return;
+
+    setIsSaving(true);
+    setFetchError(null);
+    setProfileMessage(null);
+
+    try {
+      const token = await firebaseUser.getIdToken(true);
+      const updatedUser = await updateCurrentUser(token, {
+        name: profileForm.name,
+        phoneNumber: profileForm.phoneNumber || null,
+      });
+      setProfileUser(updatedUser);
+      await refreshSession();
+      setProfileMessage("Profile updated in local PostgreSQL.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update profile.";
+      setFetchError(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateProfilePhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !firebaseUser) return;
+
+    if (!file.type.startsWith("image/")) {
+      setFetchError("Please choose an image file.");
+      return;
+    }
+
+    if (file.size > 750 * 1024) {
+      setFetchError("Profile photo must be 750 KB or smaller.");
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    setFetchError(null);
+    setProfileMessage(null);
+
+    try {
+      const photoUrl = await readFileAsDataUrl(file);
+      const token = await firebaseUser.getIdToken(true);
+      const updatedUser = await updateCurrentUser(token, { photoUrl });
+      setProfileUser(updatedUser);
+      await refreshSession();
+      setProfileMessage("Profile photo saved in local PostgreSQL.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update profile photo.";
+      setFetchError(message);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const handleSignOut = async () => {
     await signOutUser();
     navigate("/login", { replace: true });
@@ -133,6 +214,13 @@ const Profile = () => {
   return (
     <>
       <PortalTopbar />
+      <input
+        id="profile-photo-input"
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        onChange={updateProfilePhoto}
+      />
 
       <div className="lg:hidden bg-surface min-h-screen">
         <div className="flex items-center justify-between px-5 pt-5">
@@ -159,8 +247,10 @@ const Profile = () => {
               </div>
             </div>
             <div className="relative mt-5 grid grid-cols-2 gap-3">
-              <Button variant="gold" className="w-full" disabled>
-                <Edit2 /> Edit Profile
+              <Button asChild variant="gold" className={`w-full ${isUploadingPhoto ? "pointer-events-none opacity-70" : ""}`}>
+                <label htmlFor="profile-photo-input">
+                  <Camera /> {isUploadingPhoto ? "Saving..." : "Photo"}
+                </label>
               </Button>
               <Button variant="outline" onClick={handleSignOut} className="w-full bg-transparent text-primary-foreground ghost-border hover:bg-primary-foreground/10">
                 <LogOut /> Sign Out
@@ -171,6 +261,11 @@ const Profile = () => {
           {fetchError && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {fetchError}
+            </div>
+          )}
+          {profileMessage && (
+            <div className="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+              {profileMessage}
             </div>
           )}
 
@@ -192,7 +287,27 @@ const Profile = () => {
               <MobileInfoRow icon={<Mail className="h-5 w-5" />} label="EMAIL ADDRESS" value={email} />
               <MobileInfoRow icon={<IdCard className="h-5 w-5" />} label="FIREBASE UID" value={accountId} />
               <MobileInfoRow icon={<Shield className="h-5 w-5" />} label="EMAIL STATUS" value={emailStatus} />
-              <MobileInfoRow icon={<Phone className="h-5 w-5" />} label="PHONE NUMBER" value="Not provided" />
+              <MobileInfoRow icon={<Phone className="h-5 w-5" />} label="PHONE NUMBER" value={phoneNumber || "Not provided"} />
+            </div>
+          </section>
+
+          <section>
+            <h3 className="font-display font-extrabold text-2xl text-primary mb-3">Update Profile</h3>
+            <div className="space-y-3">
+              <ProfileInput
+                label="DISPLAY NAME"
+                value={profileForm.name}
+                onChange={(value) => setProfileForm((current) => ({ ...current, name: value }))}
+              />
+              <ProfileInput
+                label="PHONE NUMBER"
+                value={profileForm.phoneNumber}
+                onChange={(value) => setProfileForm((current) => ({ ...current, phoneNumber: value }))}
+                placeholder="+91 98765 43210"
+              />
+              <Button variant="primary" className="w-full" onClick={saveProfile} disabled={isSaving}>
+                <Edit2 /> {isSaving ? "Saving..." : "Save Profile"}
+              </Button>
             </div>
           </section>
 
@@ -220,15 +335,24 @@ const Profile = () => {
             {fetchError}
           </div>
         )}
+        {profileMessage && (
+          <div className="mb-6 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+            {profileMessage}
+          </div>
+        )}
 
         <div className="grid grid-cols-12 gap-6">
           <div className="col-span-4 space-y-6">
             <section className="bg-surface-lowest rounded-2xl p-8 shadow-card text-center">
               <div className="relative inline-block">
                 <Avatar name={displayName} src={avatarUrl} size="desktop" />
-                <button className="absolute -bottom-2 -right-2 grid place-items-center h-10 w-10 rounded-xl bg-secondary text-secondary-foreground shadow-card hover:brightness-105" disabled>
-                  <Edit2 className="h-4 w-4" />
-                </button>
+                <label
+                  htmlFor="profile-photo-input"
+                  className="absolute -bottom-2 -right-2 grid place-items-center h-10 w-10 rounded-xl bg-secondary text-secondary-foreground shadow-card hover:brightness-105 cursor-pointer"
+                  aria-label="Change profile photo"
+                >
+                  {isUploadingPhoto ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                </label>
               </div>
               <h2 className="mt-5 font-display font-extrabold text-3xl text-primary">{displayName}</h2>
               <p className="mt-1 text-muted-foreground">{details.area}</p>
@@ -273,14 +397,31 @@ const Profile = () => {
                 <DesktopField icon={<Mail className="h-4 w-4" />} label="EMAIL ADDRESS" value={email} />
                 <DesktopField icon={<IdCard className="h-4 w-4" />} label="USER ID" value={accountId} />
                 <DesktopField icon={<Shield className="h-4 w-4" />} label="ROLE" value={details.title} />
-                <DesktopField icon={<Calendar className="h-4 w-4" />} label="ACCOUNT CREATED" value={createdAt} />
+                <DesktopField icon={<Phone className="h-4 w-4" />} label="PHONE NUMBER" value={phoneNumber || "Not provided"} />
               </div>
 
               <div className="mt-6 bg-surface rounded-xl p-5">
-                <p className="text-[11px] tracking-[0.22em] font-bold text-muted-foreground">PROFILE SOURCE</p>
-                <div className="mt-2 flex items-center gap-2 text-foreground">
-                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                  <p className="font-display font-bold text-primary">Firebase Authentication</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <ProfileInput
+                    label="DISPLAY NAME"
+                    value={profileForm.name}
+                    onChange={(value) => setProfileForm((current) => ({ ...current, name: value }))}
+                  />
+                  <ProfileInput
+                    label="PHONE NUMBER"
+                    value={profileForm.phoneNumber}
+                    onChange={(value) => setProfileForm((current) => ({ ...current, phoneNumber: value }))}
+                    placeholder="+91 98765 43210"
+                  />
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] tracking-[0.22em] font-bold text-muted-foreground">PROFILE SOURCE</p>
+                    <p className="mt-1 font-display font-bold text-primary">Firebase Authentication</p>
+                  </div>
+                  <Button variant="primary" onClick={saveProfile} disabled={isSaving}>
+                    <Edit2 /> {isSaving ? "Saving..." : "Save Profile"}
+                  </Button>
                 </div>
               </div>
             </section>
@@ -396,6 +537,30 @@ function MobileInfoRow({ icon, label, value }: { icon: ReactNode; label: string;
         <p className="font-display font-bold text-primary truncate">{value}</p>
       </div>
     </div>
+  );
+}
+
+function ProfileInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[11px] tracking-[0.22em] font-bold text-muted-foreground">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="mt-2 h-12 w-full rounded-md bg-surface-high px-4 text-foreground outline-none ghost-border focus:bg-surface-lowest focus:shadow-[inset_0_-2px_0_0_hsl(var(--primary))]"
+      />
+    </label>
   );
 }
 
