@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { BadgeCheck, BookMarked, Calendar, ChevronRight, Clock, FilePlus2, IdCard, MapPin, Megaphone, MoreHorizontal } from "lucide-react";
 import { mockStudent, upcomingClasses } from "@/data/mock";
@@ -7,12 +8,21 @@ import { MobileHeader } from "@/components/MobileHeader";
 import { useAssignments } from "@/hooks/use-assignments";
 import { useAnnouncements } from "@/hooks/use-announcements";
 import { relativeTime } from "@/store/assignments";
+import { useReadNotifications } from "@/hooks/use-read-notifications";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const Dashboard = () => {
   const allAssignments = useAssignments();
   const assignments = allAssignments.filter((a) => a.section === mockStudent.section);
   const allAnnouncements = useAnnouncements();
   const announcements = allAnnouncements.filter((a) => a.section === mockStudent.section);
+  const { isRead, markRead, markAllRead } = useReadNotifications();
+  const [idOpen, setIdOpen] = useState(false);
+
+  const allIds = [
+    ...assignments.map((a) => `assignment:${a.id}`),
+    ...announcements.map((n) => `announcement:${n.id}`),
+  ];
 
   return (
     <>
@@ -34,7 +44,7 @@ const Dashboard = () => {
               <Chip>Semester {mockStudent.semester}</Chip>
               <Chip variant="gold">Section {mockStudent.section}</Chip>
             </div>
-            <Button variant="primary" className="mt-5">
+            <Button variant="primary" className="mt-5" onClick={() => setIdOpen(true)}>
               <IdCard /> VIEW ID CARD
             </Button>
           </section>
@@ -43,12 +53,20 @@ const Dashboard = () => {
           <section>
             <div className="flex items-baseline justify-between mb-3">
               <h2 className="font-display font-extrabold text-2xl text-primary">Notification Center</h2>
-              <button className="text-xs font-bold text-primary">Mark all as read</button>
+              <button
+                onClick={() => markAllRead(allIds)}
+                disabled={allIds.length === 0}
+                className="text-xs font-bold text-primary disabled:text-muted-foreground hover:underline"
+              >
+                Mark all as read
+              </button>
             </div>
             <div className="space-y-3">
               {assignments.map((a) => (
                 <NotifCard
                   key={a.id}
+                  read={isRead(`assignment:${a.id}`)}
+                  onClick={() => markRead(`assignment:${a.id}`)}
                   tone="blue"
                   icon={<FilePlus2 className="h-5 w-5" />}
                   title={`New Assignment: ${a.title}`}
@@ -70,6 +88,8 @@ const Dashboard = () => {
               {announcements.map((n) => (
                 <NotifCard
                   key={n.id}
+                  read={isRead(`announcement:${n.id}`)}
+                  onClick={() => markRead(`announcement:${n.id}`)}
                   tone="gold"
                   icon={<Megaphone className="h-5 w-5" />}
                   title={`${n.subject} — ${n.postedBy}`}
@@ -116,9 +136,9 @@ const Dashboard = () => {
               ))}
             </div>
 
-            <button className="w-full mt-4 rounded-xl py-4 text-sm font-bold text-foreground border-2 border-dashed border-border/60 hover:bg-surface-lowest">
+            <Link to="/courses" className="block w-full mt-4 rounded-xl py-4 text-sm font-bold text-foreground border-2 border-dashed border-border/60 hover:bg-surface-lowest text-center">
               View Full Week Schedule
-            </button>
+            </Link>
           </section>
         </div>
 
@@ -152,9 +172,9 @@ const Dashboard = () => {
                 You have {upcomingClasses.length} upcoming classes today. Your attendance is currently at {mockStudent.attendance}% — keep it up!
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <Button variant="gold" size="lg"><IdCard /> View ID Card</Button>
-                <Button variant="outline" size="lg" className="bg-transparent text-primary-foreground ghost-border hover:bg-primary-foreground/10">
-                  <Calendar /> Academic Calendar
+                <Button variant="gold" size="lg" onClick={() => setIdOpen(true)}><IdCard /> View ID Card</Button>
+                <Button asChild variant="outline" size="lg" className="bg-transparent text-primary-foreground ghost-border hover:bg-primary-foreground/10">
+                  <Link to="/courses"><Calendar /> Academic Calendar</Link>
                 </Button>
               </div>
             </section>
@@ -257,6 +277,36 @@ const Dashboard = () => {
           </aside>
         </div>
       </div>
+
+      {/* ID Card Dialog */}
+      <Dialog open={idOpen} onOpenChange={setIdOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Student ID Card</DialogTitle>
+            <DialogDescription>Show this at the gate or library counter.</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-2xl bg-gradient-primary text-primary-foreground p-6 shadow-card">
+            <div className="flex items-center gap-4">
+              <img src={mockStudent.avatar} alt={mockStudent.name} className="h-20 w-20 rounded-xl object-cover ring-2 ring-secondary" />
+              <div className="min-w-0">
+                <p className="text-[10px] tracking-[0.25em] font-bold opacity-80">IITM JANAKPURI</p>
+                <p className="font-display font-extrabold text-2xl leading-tight">{mockStudent.name}</p>
+                <p className="text-sm opacity-90">{mockStudent.program} • Sem {mockStudent.semester}</p>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-[10px] tracking-[0.2em] font-bold opacity-70">ID</p>
+                <p className="font-mono">{mockStudent.id}</p>
+              </div>
+              <div>
+                <p className="text-[10px] tracking-[0.2em] font-bold opacity-70">SECTION</p>
+                <p className="font-bold">{mockStudent.section}</p>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
@@ -273,22 +323,28 @@ function Card({ children }: { children: React.ReactNode }) {
   return <div className="bg-surface-lowest rounded-xl p-5 shadow-card">{children}</div>;
 }
 
-function NotifCard({ tone, icon, title, time, body, action }: {
-  tone: "gold" | "blue" | "rose"; icon: React.ReactNode; title: string; time: string; body: string; action?: React.ReactNode;
+function NotifCard({ tone, icon, title, time, body, action, read = false, onClick }: {
+  tone: "gold" | "blue" | "rose"; icon: React.ReactNode; title: string; time: string; body: string; action?: React.ReactNode; read?: boolean; onClick?: () => void;
 }) {
   const ring = tone === "gold" ? "border-secondary" : tone === "blue" ? "border-primary-fixed" : "border-destructive";
   const iconBg = tone === "gold" ? "bg-secondary text-secondary-foreground" : tone === "blue" ? "bg-primary-fixed text-on-primary-fixed" : "bg-destructive/15 text-destructive";
   return (
-    <div className={`bg-surface-lowest rounded-xl p-4 shadow-card border-l-4 ${ring}`}>
+    <div
+      onClick={onClick}
+      className={`bg-surface-lowest rounded-xl p-4 shadow-card border-l-4 ${ring} ${onClick ? "cursor-pointer" : ""} ${read ? "opacity-60" : ""}`}
+    >
       <div className="flex gap-3">
         <span className={`grid place-items-center h-10 w-10 rounded-lg shrink-0 ${iconBg}`}>{icon}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex justify-between gap-3">
+          <div className="flex justify-between gap-3 items-start">
             <p className="font-display font-bold text-primary leading-tight">{title}</p>
-            <span className="text-[10px] tracking-[0.18em] font-bold text-muted-foreground shrink-0">{time}</span>
+            <div className="flex items-center gap-2 shrink-0">
+              {!read && <span className="h-2 w-2 rounded-full bg-destructive" />}
+              <span className="text-[10px] tracking-[0.18em] font-bold text-muted-foreground">{time}</span>
+            </div>
           </div>
           <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{body}</p>
-          {action && <div className="mt-3">{action}</div>}
+          {action && <div className="mt-3" onClick={(e) => e.stopPropagation()}>{action}</div>}
         </div>
       </div>
     </div>
