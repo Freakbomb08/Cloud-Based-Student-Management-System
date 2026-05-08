@@ -44,7 +44,7 @@ export function PortalTopbar({ search = "Search academic records..." }: { search
         <button className="grid place-items-center h-10 w-10 rounded-full hover:bg-surface-low">
           <Settings className="h-5 w-5 text-primary" />
         </button>
-        <img src={mockStudent.avatar} alt="Me" className="h-10 w-10 rounded-full object-cover" />
+        {/* Profile photo removed from topbar */}
       </div>
     </header>
   );

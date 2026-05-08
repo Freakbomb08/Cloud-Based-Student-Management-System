@@ -19,7 +19,7 @@ export function PortalSidebar() {
 
   const displayName = appUser?.name || mockStudent.name;
   const displayId = appUser?.id || mockStudent.id;
-  const avatar = appUser?.photoUrl || mockStudent.avatar;
+
 
   const onSignOut = async () => {
     await signOutUser();
@@ -31,7 +31,7 @@ export function PortalSidebar() {
       <Brand variant="stacked" />
 
       <div className="rounded-xl bg-surface-lowest p-3 flex items-center gap-3 shadow-card">
-        <img src={avatar} alt={displayName} className="h-11 w-11 rounded-lg object-cover" />
+        {/* Profile photo removed from sidebar */}
         <div className="leading-tight">
           <p className="font-display font-bold text-primary text-sm">{displayName}</p>
           <p className="text-[11px] text-muted-foreground tracking-wide">ID: {displayId}</p>
