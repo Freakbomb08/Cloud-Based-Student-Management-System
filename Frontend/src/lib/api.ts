@@ -32,6 +32,22 @@ export async function syncUserSession(idToken: string): Promise<SessionUser> {
   return data.user as SessionUser;
 }
 
+export async function fetchCurrentUser(idToken: string): Promise<SessionUser> {
+  const response = await fetch(`${API_BASE_URL}/api/users/me`, {
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.message || "Unable to fetch user profile.");
+  }
+
+  return data.user as SessionUser;
+}
+
 export async function updateUserRole(
   adminIdToken: string,
   firebaseUid: string,

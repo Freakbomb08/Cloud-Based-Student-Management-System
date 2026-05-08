@@ -72,6 +72,19 @@ function requireRole(...allowedRoles) {
   };
 }
 
+function toSessionUser(user) {
+  return {
+    id: user.firebase_uid,
+    email: user.email,
+    name: user.display_name || user.email,
+    photoUrl: user.photo_url,
+    role: user.role,
+    createdAt: user.created_at,
+    updatedAt: user.updated_at,
+    lastLoginAt: user.last_login_at,
+  };
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
@@ -117,21 +130,34 @@ app.post("/api/auth/session", verifyFirebaseToken, async (req, res) => {
 
     const user = rows[0];
 
-    return res.json({
-      user: {
-        id: user.firebase_uid,
-        email: user.email,
-        name: user.display_name || user.email,
-        photoUrl: user.photo_url,
-        role: user.role,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
-        lastLoginAt: user.last_login_at,
-      },
-    });
+    return res.json({ user: toSessionUser(user) });
   } catch (error) {
     console.error("Failed to sync auth session:", error);
     return res.status(500).json({ message: "Failed to sync user session." });
+  }
+});
+
+app.get("/api/users/me", verifyFirebaseToken, async (req, res) => {
+  try {
+    const firebaseUid = req.decodedToken.uid;
+
+    const { rows } = await pool.query(
+      `
+      SELECT firebase_uid, email, display_name, photo_url, role, created_at, updated_at, last_login_at
+      FROM users
+      WHERE firebase_uid = $1
+      `,
+      [firebaseUid]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "User profile has not been synced yet." });
+    }
+
+    return res.json({ user: toSessionUser(rows[0]) });
+  } catch (error) {
+    console.error("Failed to fetch current user:", error);
+    return res.status(500).json({ message: "Failed to fetch current user." });
   }
 });
 
